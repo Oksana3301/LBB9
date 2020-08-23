@@ -1,0 +1,562 @@
+---
+title: "Classifiy the image !"
+author: "Atika Dewi Suryani"
+date: "8/23/2020"
+output :
+html_document:
+  toc: yes
+  toc_float:
+    collapsed: no
+  number_sections: yes
+  toc_depth: 3
+  theme: flatly
+  highlight: breezedark
+  df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center", warning = F, message = F)
+```
+
+```{r}
+knitr::include_graphics("image/images.jpeg")
+```
+
+# Libraries and Setup
+```{r}
+library(keras)
+use_condaenv("r-tensorflow2")
+library(dplyr)
+library(caret)
+library(data.table)
+library(tidyr)
+library(ggplot2)
+
+# test library
+model <- keras_model_sequential()
+```
+
+# Import Data
+```{r}
+train <- read.csv("data/fashion-mnist_train.csv")
+test <- read.csv("data/fashion-mnist_test.csv")
+```
+
+# Inspect Data
+```{r}
+# check train data dimension
+dim(train)
+```
+```{r}
+# check column number 1-5 dan ke 782-785
+colnames(train)[c(1:5, 782:785)]
+```
+```{r}
+# check interval number of train data
+range(train)
+```
+```{r}
+class_names = c('T-shirt/top',
+                'Trouser',
+                'Pullover',
+                'Dress',
+                'Coat', 
+                'Sandal',
+                'Shirt',
+                'Sneaker',
+                'Bag',
+                'Ankle boot')
+class_names
+```
+# Check LabelsPreview one of the data
+```{r}
+train_labels <- array(as.vector(t(train[,1])))
+test_labels <- array(as.vector(t(test[,1])))
+
+class(test_labels)
+```
+```{r}
+x_train <- data.matrix(train[,-1])/255
+x_test <- data.matrix(test[,-1])/255
+
+dim(x_train)
+```
+ 
+```{r}
+rotate <- function(x) t(apply(x, 2, rev))
+pict_no <- 5
+image_1 <- as.data.frame(rotate(array(as.vector(t(train[pict_no,-1])),dim = c(28,28,1))))
+
+colnames(image_1) <- seq_len(ncol(image_1))
+image_1$y <- seq_len(nrow(image_1))
+image_1 <- gather(image_1, "x", "value", -y)
+image_1$x <- as.integer(image_1$x)
+
+ggplot(image_1, aes(x = x, y = y, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "black", na.value = NA) +
+  scale_y_reverse() +
+  theme_minimal() +
+  theme(panel.grid = element_blank())   +
+  theme(aspect.ratio = 1) +
+  xlab("") +
+  ylab("")
+```
+
+```{r}
+# check proportion each levels in target variables
+prop.table(table(train$label))
+```
+# Cross Validation
+Data that is going to use in train and test set (already done using cross validation)
+
+# Data Preprocess
+## Prepare Train
+```{r}
+train_x <- train %>% 
+  select(-label) %>% 
+  data.matrix()
+
+train_x_keras <- array_reshape(train_x, dim = dim(train_x))/255
+
+class(test_labels)
+
+train_y <- train %>% 
+  select(label) %>% 
+  data.matrix()
+
+train_y_keras <- to_categorical(train_y, num_classes = 10)
+```
+
+Top 25 datas in train data
+```{r}
+par(mfcol=c(5,5))
+par(mar=c(0, 0, 1.5, 0), xaxs='i', yaxs='i')
+for (i in 1:25) {
+  img <- matrix(train_x_keras[i,], nrow=28, byrow=T)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  #img <- train_images[i, , ]
+  #img <- t(apply(img, 2, rev)) 
+  image(1:28, 1:28, img, col = gray((0:255)/255), xaxt = 'n', yaxt = 'n',
+        main = paste(class_names[train_labels[i] + 1]))
+}
+```
+Top 25 datas in test data
+```{r}
+par(mfcol=c(5,5))
+par(mar=c(0, 0, 1.5, 0), xaxs='i', yaxs='i')
+for (i in 1:25) {
+  img <- matrix(train_x_keras[i,], nrow=28, byrow=T)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  #img <- train_images[i, , ]
+  #img <- t(apply(img, 2, rev)) 
+  image(1:28, 1:28, img, col = gray((0:255)/255), xaxt = 'n', yaxt = 'n',
+        main = paste(class_names[test_labels[i] + 1]))
+}
+```
+
+## Prepare Test
+```{r}
+test_x <- test %>% 
+  select(-label) %>% 
+  data.matrix()
+
+test_x_keras <- array_reshape(test_x, dim = dim(test_x))/255
+
+test_y <- test %>% 
+  select(label) %>% 
+  data.matrix()
+
+test_y_keras <- to_categorical(train_y, num_classes = 10)
+```
+
+```{r}
+par(mfcol=c(5,5))
+par(mar=c(0, 0, 1.5, 0), xaxs='i', yaxs='i')
+for (i in 1:25) {
+  img <- matrix(x_train[i,], nrow=28, byrow=T)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  #img <- train_images[i, , ]
+  #img <- t(apply(img, 2, rev)) 
+  image(1:28, 1:28, img, col = gray((0:255)/255), xaxt = 'n', yaxt = 'n',
+        main = paste(class_names[train_labels[i] + 1]))
+}
+```
+
+# Building Architecture
+```{r}
+# object model in form of sequence, ((create architecture template)
+model <- keras_model_sequential()
+
+# create architecture
+model %>% 
+  layer_dense(input_shape = 784, units = 512, activation = "relu") %>% 
+  layer_dense(units = 128, activation = "relu") %>% 
+  layer_dense(units = 10, activation = "softmax") %>% 
+  compile(loss = "categorical_crossentropy",
+          optimizer = optimizer_adamax(),
+          metrics = "accuracy")
+
+summary(model)
+```
+# Modelling on Train Data 
+```{r}
+history <- model %>% 
+  fit(train_x_keras, train_y_keras,
+      epoch = 23,
+      batch_size = 300)
+```
+
+# Predicting on Test Data
+```{r}
+prediction <- model %>% 
+  predict_classes(test_x_keras)
+```
+
+# Tuning
+```{r}
+model_test <- keras_model_sequential()
+model_test %>% 
+  layer_dense(units = 256, activation = 'relu', input_shape = c(784)) %>% 
+  # layer_dropout(rate = 0.2) %>% 
+  # layer_dense(units = 128, activation = 'relu') %>%
+  # layer_dropout(rate = 0) %>%
+  layer_dense(units = 10, activation = 'softmax') 
+
+summary(model_test)
+```
+
+## Error Model
+```{r}
+model_test %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_adam(),
+  metrics = c('accuracy')
+)
+```
+
+Training process when take the history
+```{r}
+history <- model_test %>% 
+  fit(
+  train_x_keras, train_y_keras, 
+  epochs = 12, 
+  batch_size = 128,
+  validation_split = 0.2
+)
+```
+
+
+```{r}
+y_train <- to_categorical(train[,1])
+y_test <-  to_categorical(test[,1])
+
+dim(y_train)
+```
+
+# Evaluating
+```{r}
+confusionMatrix(as.factor(prediction), as.factor(test_y))
+```
+
+## Validation Model 1 Layer
+```{r}
+scores_img_train <- model_test %>% evaluate(
+  train_x_keras, train_y_keras, verbose = 0
+)
+
+# Output metrics
+cat('Train loss:', scores_img_train[[1]], '\n')
+```
+```{r}
+cat('Train accuracy:', scores_img_train[[2]], '\n')
+```
+```{r}
+scores_img_test <- model_test %>% evaluate(
+  x_test, y_test, verbose = 0
+)
+
+# Output metrics
+cat('Test loss:', scores_img_test[[1]], '\n')
+```
+```{r}
+cat('Test accuracy:', scores_img_test[[2]], '\n')
+```
+Dari hasil di atas dapat kita lihat bahwa penmbentukan neural network tanpa hidden layer pun sudah cukup baik dalam menebak prediksi
+
+Berikut adalah plot proses training di tiap epoch:
+```{r}
+plot(1:12,history$metrics$acc,type="l",col="blue",ylim=c(0.8,1))
+lines(history$metrics$val_acc, col="green")
+legend("topright", c("train","val"), col=c("blue", "green"), lty=c(1,1))
+```
+```{r}
+plot(1:12,history$metrics$loss,type="l",col="blue",ylim=c(0.2,0.7))
+lines(history$metrics$val_loss, col="green")
+legend("topright", c("train","val"), col=c("blue", "green"), lty=c(1,1))
+```
+Selanjutnya kita mencari prediksi hasil dari model tersebut, dibawah akan ditampilkan 25 prediksi pertama
+```{r}
+class_pred_img <- model_test %>% predict_classes(x_test)
+class_pred_img[1:25]
+```
+```{r}
+test_labels[1:25]
+```
+Preview in each image 
+```{r}
+par(mfcol=c(5,5))
+par(mar=c(0, 0, 1.5, 0), xaxs='i', yaxs='i')
+for (i in 1:25) { 
+  img <- matrix(x_test[i,], nrow=28, byrow=T)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  
+  predicted_label <- class_pred_img[i]
+  true_label <- test_labels[i]
+  if (predicted_label == true_label) {
+    color <- '#008800' 
+  } else {
+    color <- '#bb0000'
+  }
+  image(1:28, 1:28, img, col = gray((0:255)/255), xaxt = 'n', yaxt = 'n',
+        main = paste0(class_names[predicted_label + 1], " (",
+                      class_names[true_label + 1], ")"),
+        col.main = color)
+}
+```
+## Model Multiple Layer (Deep Learning)
+```{r}
+model_test2 <- keras_model_sequential()
+model_test2 %>% 
+  layer_dense(units = 256, activation = 'relu', input_shape = c(784)) %>% 
+  layer_dropout(rate = 0.2) %>%
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dropout(rate = 0) %>%
+  layer_dense(units = 10, activation = 'softmax') 
+
+summary(model_test2)
+```
+```{r}
+model_test2 %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_adam(),
+  metrics = c('accuracy')
+)
+```
+```{r}
+history2 <- model_test2 %>% fit(
+  x_train, y_train, 
+  epochs = 12, 
+  batch_size = 128,
+  validation_split = 0.2
+)
+```
+
+## Validate Model Multiple Layer
+```{r}
+scores_img_train2 <- model_test2 %>% evaluate(
+  x_train, y_train, verbose = 0
+)
+
+# Output metrics
+cat('Train loss:', scores_img_train2[[1]], '\n')
+```
+```{r}
+cat('Train accuracy:', scores_img_train2[[2]], '\n')
+```
+```{r}
+scores_img_test2 <- model_test2 %>% evaluate(
+  x_test, y_test, verbose = 0
+)
+
+# Output metrics
+cat('Test loss:', scores_img_test2[[1]], '\n')
+```
+```{r}
+cat('Test accuracy:', scores_img_test2[[2]], '\n')
+```
+ From the results above, we can see that even establishing a neural network without a hidden layer is good enough in guessing predictions
+
+The following is a plot of the training process in each epoch:
+```{r}
+plot(1:12,history$metrics$acc,type="l",col="blue",ylim=c(0.8,1))
+lines(history$metrics$val_acc, col="green")
+legend("topright", c("train","val"), col=c("blue", "green"), lty=c(1,1))
+```
+```{r}
+plot(1:12,history2$metrics$loss,type="l",col="blue",ylim=c(0.2,0.7))
+lines(history2$metrics$val_loss, col="green")
+legend("topright", c("train","val"), col=c("blue", "green"), lty=c(1,1))
+```
+```{r}
+class_pred_img2 <- model_test2 %>% predict_classes(x_test)
+class_pred_img2[1:25]
+```
+```{r}
+test_labels[1:25]
+```
+```{r}
+par(mfcol=c(5,5))
+par(mar=c(0, 0, 1.5, 0), xaxs='i', yaxs='i')
+for (i in 1:25) { 
+  img <- matrix(x_test[i,], nrow=28, byrow=T)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  img <- apply(img, 1, rev)
+  
+  predicted_label <- class_pred_img2[i]
+  true_label <- test_labels[i]
+  if (predicted_label == true_label) {
+    color <- '#008800' 
+  } else {
+    color <- '#bb0000'
+  }
+  image(1:28, 1:28, img, col = gray((0:255)/255), xaxt = 'n', yaxt = 'n',
+        main = paste0(class_names[predicted_label + 1], " (",
+                      class_names[true_label + 1], ")"),
+        col.main = color)
+}
+```
+**Summary**
+Wrong Prediction Total : 5
+
+## Model Convolutional Neural Networks
+To create a convolutional neural network, the input layer that enters must be in the form of a square matrix, therefore there are some additional preprocessing of input data. After preprocessing the data is displayed to ensure that the data is not randomized.
+```{r}
+x_traincnn <- array_reshape(train_x, c(nrow(x_train), 28, 28, 1))
+x_testcnn <- array_reshape(x_test, c(nrow(x_test), 28, 28, 1))
+
+for (i in 1:nrow(x_traincnn)) {
+  x_traincnn[i,,,] <- rotate(x_traincnn[i,,,])
+}
+
+for (i in 1:nrow(x_testcnn)) {
+  x_testcnn[i,,,] <- rotate(x_testcnn[i,,,])
+}
+
+dim(x_traincnn)
+```
+```{r}
+dim(x_testcnn)
+```
+```{r}
+image(x_traincnn[1,,,])
+```
+```{r}
+image(x_testcnn[1,,,])
+```
+```{r}
+model_test3 <- keras_model_sequential() %>%
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu',
+                input_shape = c(28,28,1)) %>% 
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = 'relu') %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>% 
+  layer_flatten() %>% 
+  layer_dense(units = 128, activation = 'relu') %>% 
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 10, activation = 'softmax')
+  
+  summary(model_test3)
+```
+```{r}
+model_test3 %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_adam(),
+  metrics = c('accuracy')
+)
+```
+```{r}
+#Model tidak akan di run pada saat knit
+history3 <- model_test3 %>% fit(
+  x_traincnn, y_train, 
+  epochs = 12, 
+  batch_size = 128,
+  validation_split = 0.2
+)
+```
+
+
+## Validation Convolutional Neural Network
+```{r}
+model_test3 <- keras_model_sequential() %>%
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu',
+                input_shape = c(28,28,1)) %>% 
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = 'relu') %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>% 
+  layer_flatten() %>% 
+  layer_dense(units = 128, activation = 'relu') %>% 
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 10, activation = 'softmax')
+  
+  summary(model_test3)
+```
+```{r}
+model_test3 %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_adam(),
+  metrics = c('accuracy')
+)
+```
+
+```{r}
+#Model tidak akan di run pada saat knit
+history3 <- model_test3 %>% fit(
+  x_traincnn, y_train, 
+  epochs = 12, 
+  batch_size = 128,
+  validation_split = 0.2
+)
+```
+```{r}
+scores_img_train3 <- model_test3 %>% evaluate(
+  x_traincnn, y_train, verbose = 0
+)
+
+# Output metrics
+cat('Train loss:', scores_img_train3[[1]], '\n')
+```
+```{r}
+cat('Train accuracy:', scores_img_train3[[2]], '\n')
+```
+```{r}
+scores_img_test3 <- model_test3 %>% evaluate(
+  x_testcnn, y_test, verbose = 0
+)
+
+# Output metrics
+cat('Test loss:', scores_img_test3[[1]], '\n')
+```
+```{r}
+cat('Test accuracy:', scores_img_test3[[2]], '\n')
+```
+```{r}
+plot(1:12,history3$metrics$acc,type="l",col="blue",ylim=c(0.8,1))
+lines(history3$metrics$val_acc, col="green")
+legend("topright", c("train","val"), col=c("blue", "green"), lty=c(1,1))
+```
+```{r}
+plot(1:12,history3$metrics$loss,type="l",col="blue",ylim=c(0.2,0.7))
+lines(history3$metrics$val_loss, col="green")
+legend("topright", c("train","val"), col=c("blue", "green"), lty=c(1,1))
+```
+```{r}
+class_pred_img3 <- model_test3 %>% predict_classes(x_testcnn)
+class_pred_img3[1:25]
+```
+
+# Conclusion
+From the model, we have to use another method to `tuning the model`, in order to increase the accuracy of the model.
+
+1. The more hidden layers does not necessarily affect the increase in model performance
+2. Using the right layer can improve the model's performance (in this case the convolutional layer)
+3. Creating a neural network frame should start from the simplest model first, in addition to a fast training process, we can determine where the next tuning will go from the simple model performance at the beginning.
